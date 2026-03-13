@@ -60,20 +60,84 @@ function shouldShowTime(index) {
 async function sendAiMessage() {
   const text = aiInput.value.trim()
   if (!text || aiLoading.value) return
+
+  // 1. 用户消息上屏
   aiHistory.value.push({ role: 'user', content: text, timestamp: new Date().toISOString() })
   aiInput.value = ''
   aiLoading.value = true
+  
+  // 滚动到底部
   nextTick(() => { const box = document.getElementById('ai-chat-box'); if (box) box.scrollTop = box.scrollHeight })
+
   try {
-    const response = await axios.post(
-      `${BASE_URL}items/ai/agent`,
-      { history: aiHistory.value },
-      { headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` } }
-    )
-    aiHistory.value.push({ role: 'assistant', content: response.data.reply, timestamp: new Date().toISOString() })
+    // 2. 预先放入一个空的 AI 回复气泡
+    const aiMessage = { role: 'assistant', content: '', timestamp: new Date().toISOString() }
+    aiHistory.value.push(aiMessage)
+
+    // 3. 使用原生 fetch 发起流式请求
+    const response = await fetch(`${BASE_URL}items/ai/agent`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+      },
+      // 发送历史记录 (去掉刚刚那个新建的空辅助消息)
+      body: JSON.stringify({ history: aiHistory.value.slice(0, -1) }) 
+    });
+
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+    // 4. 获取流读取器
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+
+    // 5. 循环读取数据流
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunkStr = decoder.decode(value, { stream: true });
+      const lines = chunkStr.split('\n\n');
+      
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const dataStr = line.replace('data: ', '');
+          if (dataStr === '[DONE]') {
+              console.log("流式输出结束");
+              break;
+          }
+          try {
+            const parsed = JSON.parse(dataStr);
+            
+            // 🌟 拦截特殊卡片类型
+            if (parsed.specialType === 'price_card') {
+              aiMessage.attachment = {
+                type: 'price_card',
+                itemName: parsed.itemName,
+                summary: parsed.marketPriceSummary
+              };
+            } else if (parsed.content) {
+              aiMessage.content += parsed.content;
+            }
+            
+            // 实时滚动到底部
+            nextTick(() => { const box = document.getElementById('ai-chat-box'); if (box) box.scrollTop = box.scrollHeight })
+          } catch (e) {
+            // 忽略解析错误（分块可能截断 JSON）
+          }
+        }
+      }
+    }
+
   } catch (error) {
     console.error('AI 请求失败:', error)
-    aiHistory.value.push({ role: 'assistant', content: '哎呀，我的大脑似乎断线了...', timestamp: new Date().toISOString() })
+    // 如果最后一条是空的或者没说完，提示错误
+    const lastMsg = aiHistory.value[aiHistory.value.length - 1];
+    if (lastMsg && lastMsg.role === 'assistant') {
+        lastMsg.content += '\n(连接中断...)'
+    } else {
+        aiHistory.value.push({ role: 'assistant', content: '哎呀，我的大脑似乎断线了...', timestamp: new Date().toISOString() })
+    }
   } finally {
     aiLoading.value = false
     nextTick(() => { const box = document.getElementById('ai-chat-box'); if (box) box.scrollTop = box.scrollHeight })
@@ -118,10 +182,19 @@ const pageSize = ref(8)
 const totalItems = ref(0)
 const dialogVisible = ref(false)
 const submitLoading = ref(false)
-const itemForm = ref({ name: '', price: '', is_offer: true, image_path: '' })
+const itemForm = ref({
+  name: '',
+  price: 0.0,
+  inventory: 1, // 🌟 默认上架 1 件
+  is_offer: true,
+  image_path: ''
+})
 const editDialogVisible = ref(false)
 const editSubmitLoading = ref(false)
-const editForm = ref({ id: null, name: '', price: '', is_offer: true, image_path: '' })
+const editForm = ref({ id: null, name: '', price: '', inventory: 1, is_offer: true, image_path: '' })
+
+// 🌟 本地库存缓存：解决后端暂时不返回 inventory 字段时数据丢失的问题
+const inventoryCache = new Map()
 
 const chatVisible = ref(false)
 const chatMessages = ref([])
@@ -214,7 +287,18 @@ async function fetchItems() {
     else if (currentFilter.value === 'request') queryParams.is_offer_filter = false
     if (searchQuery.value.trim() !== '') queryParams.search = searchQuery.value.trim()
     const response = await axios.get(`${BASE_URL}items/`, { params: queryParams })
-    itemsList.value = response.data.items || response.data
+    
+    // 🌟 数据清洗：优先用后端数据 → 其次用本地缓存 → 最后默认 1
+    const rawItems = response.data.items || response.data
+    itemsList.value = Array.isArray(rawItems) ? rawItems.map(item => {
+      const backendInventory = (item.inventory !== undefined && item.inventory !== null) ? item.inventory : null
+      const cachedInventory = inventoryCache.get(item.id)
+      const finalInventory = backendInventory ?? cachedInventory ?? 1
+      // 如果后端返回了真实值，同步更新缓存
+      if (backendInventory !== null) inventoryCache.set(item.id, backendInventory)
+      return { ...item, inventory: finalInventory }
+    }) : []
+
     totalItems.value = response.data.total || 0
   } catch (error) { ElMessage.error('拉取商品失败') } finally { isLoading.value = false }
 }
@@ -225,10 +309,12 @@ async function submitItem() {
   if (!itemForm.value.name || !itemForm.value.price) return ElMessage.warning('不能为空哦！')
   try {
     submitLoading.value = true
-    await axios.post(`${BASE_URL}items/`, { ...itemForm.value, price: parseFloat(itemForm.value.price) })
+    const createRes = await axios.post(`${BASE_URL}items/`, { ...itemForm.value, price: parseFloat(itemForm.value.price) })
+    // 🌟 缓存新发布商品的库存值
+    if (createRes.data?.id) inventoryCache.set(createRes.data.id, itemForm.value.inventory)
     ElMessage.success('商品发布成功！')
     dialogVisible.value = false
-    itemForm.value = { name: '', price: '', is_offer: true, image_path: '' }
+    itemForm.value = { name: '', price: 0.0, inventory: 1, is_offer: true, image_path: '' }
     fetchItems()
   } catch (error) { ElMessage.error('发布失败！') } finally { submitLoading.value = false }
 }
@@ -245,7 +331,18 @@ async function deleteItem(itemId) {
   } finally { isLoading.value = false }
 }
 
-function openEditDialog(item) { editForm.value = { ...item }; editDialogVisible.value = true }
+function openEditDialog(item) { 
+  // 🌟 打开编辑时，确保把真实的 inventory 塞入表单，如果实在缺失才给 1
+  editForm.value = { 
+    id: item.id,
+    name: item.name,
+    price: item.price,
+    is_offer: item.is_offer,
+    image_path: item.image_path,
+    inventory: item.inventory !== undefined && item.inventory !== null ? item.inventory : 1
+  }
+  editDialogVisible.value = true 
+}
 
 async function buyItem(item) {
   if (!item.is_offer) return ElMessage.warning('这是一个求购贴，不能抢购哦！')
@@ -267,6 +364,8 @@ async function submitEdit() {
   try {
     editSubmitLoading.value = true
     await axios.put(`${BASE_URL}items/${editForm.value.id}`, { ...editForm.value, price: parseFloat(editForm.value.price) })
+    // 🌟 缓存编辑后的库存值，防止 fetchItems 覆盖
+    inventoryCache.set(editForm.value.id, editForm.value.inventory)
     ElMessage.success('修改成功！')
     editDialogVisible.value = false
     fetchItems()
@@ -278,15 +377,34 @@ async function submitEdit() {
 function handleLogout() { localStorage.removeItem('access_token'); router.push('/login') }
 
 let chatWs = null
+let reconnectAttempts = 0 // 记录重连次数的幽灵变量
+
 function connectWebSocket() {
-  const wsUrl = BASE_URL.replace('http', 'ws') + 'items/ws/hall'
-  ws = new WebSocket(wsUrl)
-  ws.onopen = () => console.log('交易大厅 WebSocket 已连接')
-  ws.onmessage = (event) => {
+  const wsUrl = BASE_URL.replace(/^http/, 'ws') + 'items/ws/hall'
+  chatWs = new WebSocket(wsUrl)
+  
+  chatWs.onopen = () => {
+    console.log('交易大厅 WebSocket 已连接')
+    reconnectAttempts = 0 // 连接成功，清零惩罚计数
+  }
+  
+  chatWs.onmessage = (event) => {
     ElNotification({ title: '交易播报', message: event.data, type: 'success', position: 'bottom-right', duration: 5000 })
     fetchItems()
   }
-  ws.onclose = () => { setTimeout(connectWebSocket, 3000) }
+  
+  chatWs.onclose = () => {
+    // 指数退避：1s, 2s, 4s, 8s... 最高不超过 30s
+    let baseDelay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000)
+    // 随机抖动 (Jitter)：打散同一时间断开的客户端，避免共振
+    let jitter = Math.random() * 1000 
+    let finalDelay = baseDelay + jitter
+    
+    console.warn(`WebSocket 断开，将在 ${(finalDelay/1000).toFixed(1)} 秒后执行第 ${reconnectAttempts + 1} 次重连...`)
+    
+    reconnectAttempts++
+    setTimeout(connectWebSocket, finalDelay)
+  }
 }
 
 const dashboardVisible = ref(false)
@@ -351,8 +469,13 @@ onMounted(() => {
   window.addEventListener('mousemove', onMouseMove)
   cursorRaf = requestAnimationFrame(updateCursor)
 
-  // Lenis 平滑滚动
-  lenisInstance = new Lenis({ duration: 1.2, easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)), smoothWheel: true })
+  // Lenis 平滑滚动（prevent 配置让聊天面板内的滚动不被 Lenis 劫持）
+  lenisInstance = new Lenis({
+    duration: 1.2,
+    easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+    smoothWheel: true,
+    prevent: (node) => node.closest('.panel-body') !== null
+  })
   lenisInstance.on('scroll', ScrollTrigger.update)
   gsap.ticker.add((time) => { lenisInstance.raf(time * 1000) })
   gsap.ticker.lagSmoothing(0)
@@ -457,17 +580,23 @@ onUnmounted(() => {
 
     <!-- 商品网格 -->
     <div v-else class="product-grid">
-      <div v-for="item in itemsList" :key="item.id" class="glass-card">
+      <div v-for="item in itemsList" :key="item.id" :class="['glass-card', {'is-sold-out': item.is_sold || item.inventory <= 0}]">
         <div class="card-image">
           <img v-if="item.image_path" :src="getFullImageUrl(item.image_path)" :alt="item.name" />
           <div v-else class="card-image-placeholder"><span>✦</span></div>
-          <span :class="['card-badge', item.is_offer ? 'badge-sell' : 'badge-buy']">{{ item.is_offer ? '出售' : '求购' }}</span>
+          <span v-if="item.is_sold || item.inventory <= 0" class="card-badge badge-soldout">已售罄</span>
+          <span v-else :class="['card-badge', item.is_offer ? 'badge-sell' : 'badge-buy']">{{ item.is_offer ? '出售' : '求购' }}</span>
         </div>
         <div class="card-body">
           <h3 class="card-title">{{ item.name }}</h3>
-          <p class="card-price">¥ {{ item.price }}</p>
+          <div class="card-price">
+            <span>¥ {{ item.price }}</span>
+            <span style="font-size: 0.8em; color: #94a3b8; margin-left: 10px;">剩余: {{ item.inventory }} 件</span>
+          </div>
           <div class="card-actions">
-            <button v-if="item.is_offer" class="btn-buy" @click="buyItem(item)">抢购</button>
+            <button v-if="item.is_offer" :class="['btn-buy', (item.is_sold || item.inventory <= 0) ? 'btn-disabled' : '']" :disabled="item.is_sold || item.inventory <= 0" @click="buyItem(item)">
+              {{ (item.is_sold || item.inventory <= 0) ? '已售罄' : '抢购' }}
+            </button>
             <button class="btn-edit" @click="openEditDialog(item)">编辑</button>
             <button class="btn-delete" @click="deleteItem(item.id)">删除</button>
           </div>
@@ -513,7 +642,23 @@ onUnmounted(() => {
             <div v-for="(msg, index) in aiHistory" :key="index" class="message-wrapper">
               <div v-if="shouldShowTime(index)" class="chat-time-divider">{{ formatChatTime(msg.timestamp) }}</div>
               <div :class="['bubble-row', msg.role === 'user' ? 'is-user' : 'is-ai']">
-                <div :class="['bubble', msg.role === 'user' ? 'bubble-user' : 'bubble-ai']">{{ msg.content }}</div>
+                <div :class="['bubble', msg.role === 'user' ? 'bubble-user' : 'bubble-ai']">
+                  {{ msg.content }}
+                  <!-- 🕸️ 赛博天眼比价卡片 -->
+                  <div v-if="msg.attachment && msg.attachment.type === 'price_card'" class="cyber-price-card">
+                    <div class="price-card-header">
+                      <span class="price-card-icon">◎</span>
+                      <span>全网天眼雷达</span>
+                      <span class="price-card-live">● LIVE</span>
+                    </div>
+                    <div class="price-card-body">
+                      <div class="price-card-target">⌕ 目标锁定：{{ msg.attachment.itemName }}</div>
+                      <div class="price-card-divider"></div>
+                      <div class="price-card-summary">{{ msg.attachment.summary }}</div>
+                    </div>
+                    <div class="price-card-glow"></div>
+                  </div>
+                </div>
               </div>
             </div>
             <div v-if="aiLoading" class="bubble bubble-ai typing-dots">闲小宝思考中<span class="dots">...</span></div>
@@ -528,22 +673,24 @@ onUnmounted(() => {
     </div>
 
     <!-- 弹窗：发布 -->
-    <el-dialog v-model="dialogVisible" title="发布新商品" width="450px">
-      <el-form label-position="top">
+    <el-dialog v-model="dialogVisible" title="发布新商品" width="450px" top="5vh">
+      <el-form label-width="80px">
         <el-form-item label="商品实物图"><el-upload class="avatar-uploader" :action="`${BASE_URL}items/upload-image/`" :headers="getUploadHeaders()" :show-file-list="false" :on-success="handleUploadSuccess" name="file" drag><img v-if="itemForm.image_path" :src="getFullImageUrl(itemForm.image_path)" class="preview-img" /><div v-else class="upload-placeholder"><div class="el-upload__text">点击或拖拽上传</div></div></el-upload></el-form-item>
         <el-form-item label="物品名称"><el-input v-model="itemForm.name" /></el-form-item>
         <el-form-item label="价格"><el-input v-model="itemForm.price" type="number" /></el-form-item>
+        <el-form-item label="库存数量"><el-input-number v-model="itemForm.inventory" :min="1" :max="999" /></el-form-item>
         <el-form-item label="交易类型"><el-switch v-model="itemForm.is_offer" active-text="出售" inactive-text="求购" active-color="#13ce66" inactive-color="#ff4949" /></el-form-item>
       </el-form>
       <template #footer><el-button @click="dialogVisible = false">取消</el-button><el-button type="primary" :loading="submitLoading" @click="submitItem">确定发布</el-button></template>
     </el-dialog>
 
     <!-- 弹窗：编辑 -->
-    <el-dialog v-model="editDialogVisible" title="修改商品信息" width="450px">
-      <el-form label-position="top">
+    <el-dialog v-model="editDialogVisible" title="修改商品信息" width="450px" top="5vh">
+      <el-form label-width="80px">
         <el-form-item label="更换商品图"><el-upload class="avatar-uploader" :action="`${BASE_URL}items/upload-image/`" :headers="getUploadHeaders()" :show-file-list="false" :on-success="handleEditUploadSuccess" name="file" drag><img v-if="editForm.image_path" :src="getFullImageUrl(editForm.image_path)" class="preview-img" /><div v-else class="upload-placeholder"><div class="el-upload__text">点击或拖拽上传新图片</div></div></el-upload></el-form-item>
         <el-form-item label="物品名称"><el-input v-model="editForm.name" /></el-form-item>
         <el-form-item label="价格"><el-input v-model="editForm.price" type="number" /></el-form-item>
+        <el-form-item label="库存数量"><el-input-number v-model="editForm.inventory" :min="1" :max="999" /></el-form-item>
         <el-form-item label="交易类型"><el-switch v-model="editForm.is_offer" active-text="出售" inactive-text="求购" active-color="#13ce66" inactive-color="#ff4949" /></el-form-item>
       </el-form>
       <template #footer><el-button @click="editDialogVisible = false">取消</el-button><el-button type="primary" :loading="editSubmitLoading" @click="submitEdit">保存修改</el-button></template>
@@ -1110,6 +1257,23 @@ onUnmounted(() => {
   color: #DC2626;
   border: 1px solid rgba(220, 38, 38, 0.2);
 }
+.badge-soldout {
+  background: rgba(107, 114, 128, 0.15);
+  color: #6B7280;
+  border: 1px solid rgba(107, 114, 128, 0.25);
+}
+
+.is-sold-out {
+  opacity: 0.85;
+}
+.is-sold-out .card-image img {
+  filter: grayscale(100%);
+  opacity: 0.7;
+}
+.is-sold-out .card-price {
+  filter: grayscale(100%);
+  opacity: 0.6;
+}
 
 .card-body {
   padding: 20px;
@@ -1163,6 +1327,14 @@ onUnmounted(() => {
   background: rgba(5, 150, 105, 0.15) !important;
   box-shadow: 0 0 16px rgba(5, 150, 105, 0.12);
   transform: translateY(-1px);
+}
+.btn-buy.btn-disabled {
+  background: rgba(107, 114, 128, 0.08) !important;
+  border-color: rgba(107, 114, 128, 0.2) !important;
+  color: #6B7280 !important;
+  cursor: not-allowed;
+  box-shadow: none !important;
+  transform: none !important;
 }
 .btn-edit:hover {
   background: rgba(79, 70, 229, 0.08);
@@ -1296,6 +1468,7 @@ onUnmounted(() => {
 .panel-body {
   flex: 1;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 16px;
   scroll-behavior: smooth;
 }
@@ -1544,5 +1717,96 @@ onUnmounted(() => {
   .product-grid { padding: 0 20px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
   .float-panel { width: 320px; height: 420px; }
   .fab { width: 48px; height: 48px; font-size: 20px; }
+}
+
+/* ==========================================
+   🕸️ 赛博天眼比价卡片
+========================================== */
+.cyber-price-card {
+  margin-top: 10px;
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.85), rgba(30, 41, 59, 0.75));
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(56, 189, 248, 0.15);
+  backdrop-filter: blur(12px);
+}
+
+.price-card-header {
+  background: linear-gradient(90deg, rgba(56, 189, 248, 0.18), transparent);
+  padding: 7px 12px;
+  font-size: 0.78em;
+  color: #38bdf8;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  border-bottom: 1px solid rgba(56, 189, 248, 0.12);
+}
+
+.price-card-icon {
+  font-size: 1.1em;
+  animation: radarSpin 3s linear infinite;
+}
+
+@keyframes radarSpin {
+  0% { opacity: 1; }
+  50% { opacity: 0.4; }
+  100% { opacity: 1; }
+}
+
+.price-card-live {
+  margin-left: auto;
+  font-size: 0.75em;
+  color: #34d399;
+  animation: liveBlink 1.5s ease-in-out infinite;
+}
+
+@keyframes liveBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.price-card-body {
+  padding: 10px 12px;
+}
+
+.price-card-target {
+  color: #94a3b8;
+  font-size: 0.8em;
+  margin-bottom: 6px;
+  letter-spacing: 0.5px;
+}
+
+.price-card-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.25), transparent);
+  margin: 6px 0;
+}
+
+.price-card-summary {
+  color: #e2e8f0;
+  font-size: 0.88em;
+  line-height: 1.6;
+  font-weight: 500;
+  white-space: pre-wrap;
+}
+
+/* 底部扫描线流光 */
+.price-card-glow {
+  height: 2px;
+  width: 100%;
+  background: linear-gradient(90deg, transparent, #38bdf8, #818cf8, transparent);
+  animation: scanline 2.5s linear infinite;
+}
+
+@keyframes scanline {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
 }
 </style>
