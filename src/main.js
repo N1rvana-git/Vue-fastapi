@@ -1,5 +1,5 @@
 import { createApp } from 'vue'
-import ElementPlus from 'element-plus'
+import ElementPlus, { ElMessage } from 'element-plus'
 import 'element-plus/dist/index.css'
 import axios from 'axios'
 import App from './App.vue'
@@ -13,6 +13,18 @@ axios.interceptors.request.use(config => {
   }
   return config
 }, error => {
+  return Promise.reject(error)
+})
+
+
+axios.interceptors.response.use(response => {
+  return response
+}, error => {
+  if (error.response && error.response.status === 401) {
+    localStorage.removeItem('access_token')
+    ElMessage.error('登录状态已过期，请重新登录')
+    router.push('/login')
+  }
   return Promise.reject(error)
 })
 
