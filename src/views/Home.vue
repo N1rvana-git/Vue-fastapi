@@ -9,6 +9,16 @@ import Lenis from 'lenis'
 
 gsap.registerPlugin(ScrollTrigger)
 
+const isDark = ref(false)
+function toggleDark() {
+  isDark.value = !isDark.value
+  if (isDark.value) {
+    document.documentElement.classList.add('dark')
+  } else {
+    document.documentElement.classList.remove('dark')
+  }
+}
+
 // ============ Splash 开机动画状态 ============
 const splashDone = ref(false)
 
@@ -734,28 +744,28 @@ onUnmounted(() => {
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 
 .home-container {
-  --glass-bg: rgba(255, 255, 255, 0.55);
-  --glass-border: rgba(0, 0, 0, 0.06);
-  --glass-hover: rgba(255, 255, 255, 0.8);
-  --text-primary: #1A1A2E;
-  --text-secondary: #6B7280;
-  --accent: #4F46E5;
-  --accent-hover: #4338CA;
-  --accent-green: #059669;
-  --accent-red: #DC2626;
-  --radius-sm: 10px;
-  --radius-md: 16px;
-  --radius-lg: 24px;
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06);
-  --shadow-md: 0 4px 20px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04);
-  --shadow-lg: 0 20px 60px rgba(0,0,0,0.07), 0 4px 16px rgba(0,0,0,0.04);
+  --glass-bg: var(--card);
+  --glass-border: var(--border);
+  --glass-hover: var(--color-fd-background);
+  --text-primary: var(--foreground);
+  --text-secondary: var(--muted-foreground);
+  --accent: var(--primary);
+  --accent-hover: var(--ring);
+  --accent-green: var(--color-fd-success, #059669);
+  --accent-red: var(--destructive);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 20px rgba(0,0,0,0.06);
+  --shadow-lg: 0 20px 60px rgba(0,0,0,0.07);
 
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   min-height: 100vh;
   padding: 0;
   margin: 0;
-  background: linear-gradient(180deg, #FAFAF8 0%, #F3F1ED 100%);
-  color: var(--text-primary);
+  background: var(--background);
+  color: var(--foreground);
   overflow-x: hidden;
   position: relative;
 }
@@ -891,7 +901,8 @@ onUnmounted(() => {
   padding: 20px 40px;
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--card);
+  opacity: 0.9;
   border-bottom: 1px solid var(--glass-border);
   box-shadow: 0 1px 0 rgba(0,0,0,0.03);
 }
@@ -992,7 +1003,8 @@ onUnmounted(() => {
 .tag-chip {
   padding: 6px 14px 6px 18px;
   border-radius: 100px;
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--card);
+  opacity: 0.9;
   border: 1px solid rgba(0, 0, 0, 0.06);
   color: var(--text-secondary);
   font-size: 13px;
@@ -1153,7 +1165,8 @@ onUnmounted(() => {
   padding: 8px 20px;
   border-radius: 100px;
   border: 1px solid rgba(0, 0, 0, 0.08);
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--card);
+  opacity: 0.9;
   color: var(--text-secondary);
   font-size: 13px;
   font-weight: 500;
@@ -1808,5 +1821,21 @@ onUnmounted(() => {
 @keyframes scanline {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(100%); }
+}
+
+.nav-btn.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  border-radius: var(--radius-md);
+  color: var(--muted-foreground);
+  background: transparent;
+  width: 40px;
+  height: 40px;
+}
+.nav-btn.icon-btn:hover {
+  background: var(--muted);
+  color: var(--foreground);
 }
 </style>
