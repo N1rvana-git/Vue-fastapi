@@ -1,6 +1,7 @@
 import { createApp } from 'vue'
 import ElementPlus, { ElMessage } from 'element-plus'
 import 'element-plus/dist/index.css'
+import './style.css'
 import axios from 'axios'
 import App from './App.vue'
 import router from './router' // 🌟 引入咱们刚写的路由

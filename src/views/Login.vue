@@ -179,7 +179,7 @@ onUnmounted(() => {
       <div class="left-quote">
         <blockquote class="quote-text">
           <p>“人的梦想是永无止境的”</p>
-          <footer>~ 🍼</footer>
+          <footer>- 🍼</footer>
         </blockquote>
       </div>
 
