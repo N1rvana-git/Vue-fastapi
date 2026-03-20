@@ -270,3 +270,34 @@ body {
 .font-sans {
   font-family: var(--font-sans);
 }
+
+/* Element Plus Design Token Mappings (Bright E-commerce Mode) */
+:root {
+  --el-color-primary: var(--primary);
+  --el-bg-color: var(--background);
+  --el-bg-color-page: var(--color-fd-background);
+  --el-bg-color-overlay: var(--popover);
+  --el-text-color-primary: var(--foreground);
+  --el-text-color-regular: var(--muted-foreground);
+  --el-border-color: var(--border);
+  --el-border-color-light: var(--color-fd-border);
+  --el-border-radius-base: var(--radius-md);
+  --el-border-radius-small: var(--radius-sm);
+  --el-border-radius-round: var(--radius-2xl);
+  --el-box-shadow-light: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+}
+/* 强制光亮主题的卡片质感 */
+.el-card {
+  background-color: var(--card);
+  color: var(--card-foreground);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+}
+.el-button {
+  border-radius: var(--radius-md);
+}
+.el-input__wrapper {
+  border-radius: var(--radius-md);
+  box-shadow: 0 0 0 1px var(--border) inset;
+}
