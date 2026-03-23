@@ -26,6 +26,7 @@ async function handleLogin() {
     
     userStore.handleLoginSuccess(response.data.access_token)
     ElMessage.success('🎉 认证成功，欢迎回来！')
+    sessionStorage.setItem('post_login_intro', '1')
 
     if (userStore.role === 'admin') {
       router.push('/seller/dashboard')

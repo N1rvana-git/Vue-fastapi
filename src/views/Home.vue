@@ -144,6 +144,8 @@ async function clearAiHistory() {
 const router = useRouter()
 const userStore = useUserStore()
 const isDarkMode = ref(false)
+const introVisible = ref(false)
+let introTimer = null
 const tagsList = ref([])
 const tagManageMode = ref(false)
 const tagDialogVisible = ref(false)
@@ -422,6 +424,16 @@ function toggleTheme() {
 }
 
 onMounted(() => { 
+  const introFlag = sessionStorage.getItem('post_login_intro')
+  if (introFlag === '1') {
+    introVisible.value = true
+    sessionStorage.removeItem('post_login_intro')
+    introTimer = setTimeout(() => {
+      introVisible.value = false
+      introTimer = null
+    }, 1200)
+  }
+
   const savedTheme = localStorage.getItem('theme')
   if (savedTheme === 'dark' || savedTheme === 'light') {
     applyTheme(savedTheme === 'dark')
@@ -436,6 +448,11 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  if (introTimer) {
+    clearTimeout(introTimer)
+    introTimer = null
+  }
+
   if (ws) {
     ws.close()
     ws = null
@@ -460,6 +477,13 @@ async function openDashboard() {
 
 <template>
   <div class="home-container">
+    <transition name="startup-fade">
+      <div v-if="introVisible" class="startup-overlay">
+        <div class="startup-mark">R</div>
+        <p class="startup-text">启动买家大厅...</p>
+      </div>
+    </transition>
+
     <h1>🚀 我的全栈二手平台</h1>
     <div class="hero-meta">
       <p class="hero-subtitle">灵感来自顶级产品官网的编辑式布局，保留简洁效率，同时提升视觉辨识度。</p>
@@ -666,6 +690,65 @@ async function openDashboard() {
   transition: background 0.35s ease, color 0.3s ease;
   position: relative;
   isolation: isolate;
+}
+
+.startup-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: color-mix(in srgb, var(--background) 86%, transparent);
+  backdrop-filter: blur(7px);
+}
+
+.startup-mark {
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--primary-foreground);
+  background: linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--chart-4) 70%, var(--primary) 30%));
+  box-shadow: 0 14px 30px color-mix(in srgb, var(--primary) 28%, transparent);
+  animation: startup-pop 0.8s ease;
+}
+
+.startup-text {
+  margin: 0;
+  color: var(--ink);
+  letter-spacing: 0.2px;
+  font-weight: 600;
+}
+
+.startup-fade-enter-active,
+.startup-fade-leave-active {
+  transition: opacity 0.28s ease;
+}
+
+.startup-fade-enter-from,
+.startup-fade-leave-to {
+  opacity: 0;
+}
+
+@keyframes startup-pop {
+  0% {
+    transform: scale(0.7) translateY(8px);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 .home-container::before,

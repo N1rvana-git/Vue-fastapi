@@ -1,5 +1,12 @@
 <template>
   <div class="seller-wrapper">
+    <transition name="startup-fade">
+      <div v-if="introVisible" class="startup-overlay">
+        <div class="startup-mark">R</div>
+        <p class="startup-text">启动商家工作台...</p>
+      </div>
+    </transition>
+
     <!-- 左侧导航侧边栏 -->
     <aside class="sidebar">
       <div class="brand">
@@ -195,6 +202,8 @@ import { useUserStore } from '../store/user.js'
 const router = useRouter()
 const userStore = useUserStore()
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://jubilant-yodel-4jr9qx56jv9q3qrxg-8000.app.github.dev/'
+const introVisible = ref(false)
+let introTimer = null
 
 const activeTab = ref('dashboard')
 const dashboardData = ref(null)
@@ -392,12 +401,27 @@ const handleLogout = () => {
 }
 
 onMounted(() => {
+  const introFlag = sessionStorage.getItem('post_login_intro')
+  if (introFlag === '1') {
+    introVisible.value = true
+    sessionStorage.removeItem('post_login_intro')
+    introTimer = setTimeout(() => {
+      introVisible.value = false
+      introTimer = null
+    }, 1200)
+  }
+
   fetchDashboardData()
   fetchItems()
   initWebSocket()
 })
 
 onUnmounted(() => {
+  if (introTimer) {
+    clearTimeout(introTimer)
+    introTimer = null
+  }
+
   if (reconnectTimer) {
     clearTimeout(reconnectTimer)
     reconnectTimer = null
@@ -452,4 +476,63 @@ onUnmounted(() => {
 .chat-input-area { display: flex; gap: 12px; padding: 1rem 1.5rem; border-top: 1px solid #F3E6DA; background: #FFFFFF; }
 .chat-input-area input { flex: 1; padding: 0 1rem; border-radius: 9999px; border: 1px solid #F3E6DA; outline: none; font-size: 1rem; transition: all 0.2s; background: #FFFDF9; }
 .chat-input-area input:focus { border-color: #FF8F66; box-shadow: 0 0 0 2px rgba(255, 143, 102, 0.2); }
+
+.startup-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: rgba(255, 253, 249, 0.86);
+  backdrop-filter: blur(7px);
+}
+
+.startup-mark {
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  font-size: 32px;
+  font-weight: 700;
+  color: #ffffff;
+  background: linear-gradient(135deg, #ff8f66, #ff6b35);
+  box-shadow: 0 14px 30px rgba(255, 107, 53, 0.35);
+  animation: startup-pop 0.8s ease;
+}
+
+.startup-text {
+  margin: 0;
+  color: #2c1810;
+  letter-spacing: 0.2px;
+  font-weight: 600;
+}
+
+.startup-fade-enter-active,
+.startup-fade-leave-active {
+  transition: opacity 0.28s ease;
+}
+
+.startup-fade-enter-from,
+.startup-fade-leave-to {
+  opacity: 0;
+}
+
+@keyframes startup-pop {
+  0% {
+    transform: scale(0.7) translateY(8px);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
 </style>
