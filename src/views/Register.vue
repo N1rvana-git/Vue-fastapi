@@ -20,8 +20,8 @@
           <div class="form-group">
             <label class="form-label">宇宙身份选择</label>
             <el-radio-group v-model="registerForm.role" size="large" style="margin-bottom: 20px; width: 100%;">
-              <el-radio-button label="user" style="flex:1; text-align: center;">🛍️ 普通买家</el-radio-button>
-              <el-radio-button label="admin" style="flex:1; text-align: center;">👔 卖家(Admin)</el-radio-button>
+              <el-radio-button value="user" style="flex:1; text-align: center;">🛍️ 普通买家</el-radio-button>
+              <el-radio-button value="admin" style="flex:1; text-align: center;">👔 卖家(Admin)</el-radio-button>
             </el-radio-group>
           </div>
 
