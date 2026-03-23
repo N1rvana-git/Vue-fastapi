@@ -384,50 +384,8 @@ async function submitEdit() {
   } finally { editSubmitLoading.value = false }
 }
 
-function handleLogout() { localStorage.removeItem('access_token'); router.push('/login') }
-
-let chatWs = null
-let reconnectAttempts = 0 // 记录重连次数的幽灵变量
-
-function connectWebSocket() {
-  const wsUrl = BASE_URL.replace(/^http/, 'ws') + 'items/ws/hall'
-  chatWs = new WebSocket(wsUrl)
-  
-  chatWs.onopen = () => {
-    console.log('交易大厅 WebSocket 已连接')
-    reconnectAttempts = 0 // 连接成功，清零惩罚计数
-  }
-  
-  chatWs.onmessage = (event) => {
-    ElNotification({ title: '交易播报', message: event.data, type: 'success', position: 'bottom-right', duration: 5000 })
-    fetchItems()
-  }
-  
-  chatWs.onclose = () => {
-    // 指数退避：1s, 2s, 4s, 8s... 最高不超过 30s
-    let baseDelay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000)
-    // 随机抖动 (Jitter)：打散同一时间断开的客户端，避免共振
-    let jitter = Math.random() * 1000 
-    let finalDelay = baseDelay + jitter
-    
-    console.warn(`WebSocket 断开，将在 ${(finalDelay/1000).toFixed(1)} 秒后执行第 ${reconnectAttempts + 1} 次重连...`)
-    
-    reconnectAttempts++
-    setTimeout(connectWebSocket, finalDelay)
-  }
-}
-
-const dashboardVisible = ref(false)
-const dashboardData = ref(null)
-async function openDashboard() {
-  dashboardVisible.value = true
-  try {
-    const response = await axios.get(`${BASE_URL}items/dashboard/me`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` }
-    })
-    dashboardData.value = response.data
-  } catch (error) { ElMessage.error('获取个人数据失败！') }
-}
+import { useUserStore } from '../store/user.js'
+function handleLogout() { useUserStore().logout(); router.push('/login'); ElMessage.success('已退出登录') }
 
 // ============ GSAP 入场编排 + Lenis / ScrollTrigger ============
 let lenisInstance = null

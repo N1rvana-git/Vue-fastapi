@@ -1,11 +1,37 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import Login from '../views/Login.vue'
-import Home from '../views/Home.vue'
+import { useUserStore } from '../store/user.js'
 
-// 1. 定义路由规则（网址映射）
 const routes = [
-  { path: '/login', name: 'Login', component: Login },
-  { path: '/', name: 'Home', component: Home }
+  { 
+    path: '/', 
+    redirect: () => {
+      const userStore = useUserStore()
+      if (!userStore.isLoggedIn) return '/login'
+      return userStore.role === 'admin' ? '/seller/dashboard' : '/buyer/home'
+    }
+  },
+  { 
+    path: '/login', 
+    name: 'Login', 
+    component: () => import('../views/Login.vue') 
+  },
+  { 
+    path: '/register', 
+    name: 'Register', 
+    component: () => import('../views/Register.vue') 
+  },
+  { 
+    path: '/buyer/home', 
+    name: 'BuyerHome', 
+    component: () => import('../views/Home.vue'),
+    meta: { requiresAuth: true, role: 'user' }
+  },
+  { 
+    path: '/seller/dashboard', 
+    name: 'SellerDashboard', 
+    component: () => import('../views/SellerDashboard.vue'),
+    meta: { requiresAuth: true, role: 'admin' }
+  }
 ]
 
 const router = createRouter({
@@ -13,17 +39,38 @@ const router = createRouter({
   routes
 })
 
-// 🌟 2. 路由守卫：前端的安全检查站
+// 全局路由守卫
 router.beforeEach((to, from, next) => {
-  // 看看本地有没有 Token？
-  const token = localStorage.getItem('access_token')
+  const userStore = useUserStore()
   
-  // 如果他想去的不是登录页，并且没有 Token
-  if (to.name !== 'Login' && !token) {
-    next({ name: 'Login' }) // 直接踢回登录页
-  } else {
-    next() // 绿灯放行
+  // 1. 如果去登录页/注册页，且已经登录，则根据角色跳回对应主页
+  if ((to.path === '/login' || to.path === '/register') && userStore.isLoggedIn) {
+    if (userStore.role === 'admin') {
+      return next('/seller/dashboard')
+    } else {
+      return next('/buyer/home')
+    }
   }
+
+  // 2. 检查是否需要登录
+  if (to.meta.requiresAuth && !userStore.isLoggedIn) {
+    return next('/login')
+  }
+
+  // 3. 检查角色权限
+  if (to.meta.role) {
+    // 规定 admin 只能去 seller, user 只能去 buyer
+    if (to.meta.role === 'admin' && userStore.role !== 'admin') {
+      // 普通买家想去控制台 -> 踢回买家首页
+      return next('/buyer/home')
+    }
+    if (to.meta.role === 'user' && userStore.role === 'admin') {
+      // 卖家想去买家页面 -> 踢回卖家后台（这里你可根据实际业务调整是否严格互斥）
+      return next('/seller/dashboard')
+    }
+  }
+
+  next()
 })
 
 export default router

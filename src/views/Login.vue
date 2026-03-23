@@ -1,15 +1,15 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
+import api from '../utils/axios.js'
+import { useUserStore } from '../store/user.js'
 
 const router = useRouter()
+const userStore = useUserStore()
 const loginLoading = ref(false)
 const loginForm = ref({ username: '', password: '' })
 const showPassword = ref(false)
-
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://jubilant-yodel-4jr9qx56jv9q3qrxg-8000.app.github.dev/'
 
 async function handleLogin() {
   if (!loginForm.value.username || !loginForm.value.password) {
@@ -21,14 +21,17 @@ async function handleLogin() {
     const params = new URLSearchParams()
     params.append('username', loginForm.value.username)
     params.append('password', loginForm.value.password)
+
+    const response = await api.post('/token', params)
     
-    // Replace with your actual authentication endpoint if needed
-    const response = await axios.post(`${BASE_URL}token`, params)
-    localStorage.setItem('access_token', response.data.access_token)
-    
+    userStore.handleLoginSuccess(response.data.access_token)
     ElMessage.success('🎉 认证成功，欢迎回来！')
-    router.push('/')
-    
+
+    if (userStore.role === 'admin') {
+      router.push('/seller/dashboard')
+    } else {
+      router.push('/buyer/home')
+    }
   } catch (error) {
     ElMessage.error('💥 认证失败，请检查账号或密码。')
   } finally {
