@@ -256,7 +256,7 @@ onUnmounted(() => {
           </button>
         </form>
 
-        <button type="button" class="register-link" @click="ElMessage.warning('注册功能开发中')">没有账号？立即入驻</button>
+        <button type="button" class="register-link" @click="router.push('/register')">没有账号？立即入驻</button>
 
         <p class="terms-text">
           点击继续即表示您同意我们的 <button type="button">服务条款</button> 和 <button type="button">隐私政策</button>.
@@ -271,9 +271,9 @@ onUnmounted(() => {
   display: grid;
   min-height: 100vh;
   grid-template-columns: 1fr;
-  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
-  background-color: #FFFDF9; /* 暖白色背景 */
-  color: #2C1810; /* 深暖咖啡色文字 */
+  font-family: var(--font-sans);
+  background-color: var(--background);
+  color: var(--foreground);
 }
 
 @media (min-width: 768px) {
@@ -289,8 +289,8 @@ onUnmounted(() => {
   display: none;
   flex-direction: column;
   padding: 2.5rem;
-  border-right: 1px solid #F3E6DA;
-  background-color: #FFF8F0;
+  border-right: 1px solid var(--border);
+  background-color: var(--card);
 }
 
 @media (min-width: 768px) {
@@ -302,9 +302,8 @@ onUnmounted(() => {
 .left-bg-gradient {
   position: absolute;
   inset: 0;
-  /* 加入 pointer-events: none 防止遮挡容器的 mousemove 检测 */
   pointer-events: none;
-  background: linear-gradient(to bottom, transparent, transparent, rgba(255, 248, 240, 0.95));
+  background: linear-gradient(to bottom, transparent, transparent, var(--card));
   z-index: 1;
 }
 
@@ -313,26 +312,25 @@ onUnmounted(() => {
   inset: 0;
   overflow: hidden;
   z-index: 0;
-  background: #FFF0E6; 
+  background: var(--muted);
 }
 
-/* 取代旧版纯 CSS circle */
 .interactive-circle {
   position: absolute;
   border-radius: 50%;
   filter: blur(60px);
-  opacity: 0.65;
-  pointer-events: none; /* 让鼠标事件穿透给外层 rikas-left 控制 */
+  opacity: 0.4;
+  pointer-events: none;
   top: 0;
   left: 0;
-  will-change: transform; /* 提升动画性能 */
+  will-change: transform;
   transition: opacity 0.5s ease;
 }
 
 .left-quote {
   margin-top: auto;
   z-index: 10;
-  color: #4A2B1D; /* 深棕色引用文字 */
+  color: var(--foreground);
 }
 
 .left-quote blockquote {
@@ -347,10 +345,10 @@ onUnmounted(() => {
 }
 
 .left-quote footer {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-mono);
   font-weight: 600;
   font-size: 0.875rem;
-  color: #8C6A53;
+  color: var(--muted-foreground);
 }
 
 .rikas-right {
@@ -362,34 +360,38 @@ onUnmounted(() => {
   min-height: 100vh;
 }
 
-/* 右侧可以加一点极淡的呼吸光晕 */
 .right-blobs {
   position: absolute;
   inset: 0;
-  opacity: 0.3;
+  opacity: 0.15;
   z-index: 0;
   pointer-events: none;
   overflow: hidden;
 }
-.blob-1 {
+
+.blob-1,
+.blob-2 {
   position: absolute;
+  border-radius: 9999px;
+  background: radial-gradient(50% 50% at 50% 50%, var(--primary) 0, transparent 100%);
+}
+
+.blob-1 {
   top: 0;
   right: 0;
   height: 60rem;
   width: 30rem;
-  border-radius: 9999px;
   transform: translateY(-20rem);
-  background: radial-gradient(50% 50% at 50% 50%, rgba(255, 128, 102, 0.08) 0, transparent 100%);
 }
+
 .blob-2 {
   position: absolute;
   bottom: 0;
   left: 0;
   height: 40rem;
   width: 20rem;
-  border-radius: 9999px;
   transform: translateY(20rem);
-  background: radial-gradient(50% 50% at 50% 50%, rgba(255, 179, 128, 0.1) 0, transparent 100%);
+  background: radial-gradient(50% 50% at 50% 50%, var(--chart-3) 0, transparent 100%);
 }
 
 .right-content {
@@ -408,9 +410,11 @@ onUnmounted(() => {
   font-weight: 700;
   letter-spacing: 0.025em;
   margin-bottom: 0.25rem;
+  color: var(--foreground);
 }
+
 .header p {
-  color: #8C6A53;
+  color: var(--muted-foreground);
   font-size: 1rem;
   margin: 0;
 }
@@ -422,10 +426,10 @@ onUnmounted(() => {
   gap: 0.5rem;
   height: 3rem;
   width: 100%;
-  border-radius: 9999px;
-  border: 1px solid #E6D5C9;
-  background-color: #FFFFFF;
-  color: #4A2B1D;
+  border-radius: var(--radius-2xl);
+  border: 1px solid var(--border);
+  background-color: var(--card);
+  color: var(--foreground);
   font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
@@ -433,8 +437,8 @@ onUnmounted(() => {
   box-shadow: 0 1px 2px rgba(0,0,0,0.03);
 }
 .btn-google:hover {
-  background-color: #FFF6F0;
-  border-color: #FFBFA3;
+  background-color: var(--accent);
+  border-color: var(--ring);
 }
 .btn-google svg {
   height: 1.1rem;
@@ -451,11 +455,12 @@ onUnmounted(() => {
 .divider-line {
   flex: 1;
   height: 1px;
-  background-color: #E6D5C9;
+  background-color: var(--border);
 }
+
 .divider span {
   padding: 0 0.5rem;
-  color: #A68B7A;
+  color: var(--muted-foreground);
   font-size: 0.75rem;
 }
 
@@ -465,7 +470,7 @@ onUnmounted(() => {
   gap: 0.85rem;
 }
 .form-desc {
-  color: #8C6A53;
+  color: var(--muted-foreground);
   font-size: 0.8rem;
   text-align: left;
   margin-bottom: 0.25rem;
@@ -475,22 +480,23 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   height: 2.75rem;
-  border-radius: 0.5rem;
-  border: 1px solid #E6D5C9;
-  background-color: #FFFFFF;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--input);
+  background-color: var(--background);
   overflow: hidden;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 .input-container:focus-within {
-  border-color: #FF8F66;
-  box-shadow: 0 0 0 2px rgba(255, 143, 102, 0.2);
+  border-color: var(--ring);
+  box-shadow: 0 0 0 2px var(--sidebar-border);
 }
+
 .input-icon {
   display: flex;
   align-items: center;
   justify-content: center;
   padding-left: 0.85rem;
-  color: #A68B7A;
+  color: var(--muted-foreground);
 }
 .input-icon svg {
   height: 1.1rem;
@@ -500,7 +506,7 @@ onUnmounted(() => {
   flex: 1;
   border: none;
   background: transparent;
-  color: #2C1810;
+  color: var(--foreground);
   font-size: 0.9rem;
   padding: 0.5rem 0.75rem;
   outline: none;
@@ -508,7 +514,7 @@ onUnmounted(() => {
   box-sizing: border-box;
 }
 .input-container input::placeholder {
-  color: #BCA697;
+  color: var(--muted-foreground);
 }
 
 .pwd-toggle {
@@ -516,13 +522,13 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   padding: 0 0.75rem;
-  color: #A68B7A;
+  color: var(--muted-foreground);
   cursor: pointer;
   height: 100%;
   transition: color 0.2s;
 }
 .pwd-toggle:hover {
-  color: #FF8F66;
+  color: var(--ring);
 }
 
 .btn-submit {
@@ -531,21 +537,20 @@ onUnmounted(() => {
   justify-content: center;
   height: 2.75rem;
   width: 100%;
-  border-radius: 9999px;
-  background: linear-gradient(135deg, #FF8F66, #FF6B35);
-  color: #FFFFFF;
+  border-radius: var(--radius-2xl);
+  background: var(--primary);
+  color: var(--primary-foreground);
   border: none;
   font-size: 0.95rem;
   font-weight: 600;
   cursor: pointer;
   transition: opacity 0.2s, transform 0.1s;
   margin-top: 0.75rem;
-  box-shadow: 0 4px 10px rgba(255, 107, 53, 0.3);
 }
+
 .btn-submit:hover:not(:disabled) {
   opacity: 0.9;
   transform: translateY(-1px);
-  box-shadow: 0 6px 14px rgba(255, 107, 53, 0.4);
 }
 .btn-submit:disabled {
   opacity: 0.6;
@@ -556,7 +561,7 @@ onUnmounted(() => {
 .register-link {
   display: block;
   text-align: center;
-  color: #FF6B35;
+  color: var(--primary);
   font-size: 0.875rem;
   font-weight: 500;
   background: none;
@@ -572,14 +577,15 @@ onUnmounted(() => {
 
 .terms-text {
   margin-top: 2rem;
-  color: #8C6A53;
+  color: var(--muted-foreground);
   font-size: 0.8rem;
   text-align: left;
 }
+
 .terms-text button {
   background: none;
   border: none;
-  color: #FF6B35;
+  color: var(--primary);
   font-size: inherit;
   text-decoration: underline;
   text-underline-offset: 4px;
@@ -593,13 +599,18 @@ onUnmounted(() => {
 .loader {
   width: 18px;
   height: 18px;
-  border: 2px solid rgba(255,255,255,0.4);
-  border-bottom-color: #fff;
+  border: 2px solid color-mix(in srgb, var(--primary-foreground) 40%, transparent);
+  border-bottom-color: var(--primary-foreground);
   border-radius: 50%;
   animation: rotation 1s linear infinite;
 }
+
 @keyframes rotation {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 </style>
