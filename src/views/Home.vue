@@ -5,6 +5,11 @@ import { ElMessage, ElMessageBox, ElNotification } from 'element-plus' // 🌟 �
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../store/user.js'
 import { Plus, Search, Refresh } from '@element-plus/icons-vue'
+import Lenis from 'lenis'
+import gsap from 'gsap'
+import { ScrollTrigger } from 'gsap/ScrollTrigger'
+
+gsap.registerPlugin(ScrollTrigger)
 // === 🌟 新增：AI 管家状态 ===
 const aiVisible = ref(false)
 const aiInput = ref('')
@@ -169,6 +174,17 @@ const editDialogVisible = ref(false)
 const editSubmitLoading = ref(false)
 const editForm = ref({ id: null, name: '', price: '', is_offer: true, image_path: '' })
 
+// 沉浸式首屏状态（桌面优先）
+const cinematicHeroRef = ref(null)
+const cinematicCanvasRef = ref(null)
+let cinematicFrameId = null
+let cinematicResizeObserver = null
+let lenisInstance = null
+let lenisTicker = null
+let heroGsapContext = null
+let heroMouseMoveHandler = null
+let heroMouseLeaveHandler = null
+
 // 聊天室状态
 const chatVisible = ref(false)
 const chatMessages = ref([])
@@ -198,6 +214,250 @@ function isPendingEcho(message) {
 
 // ⚠️⚠️⚠️ 换成你的 Codespaces 链接 
 const BASE_URL = 'https://jubilant-yodel-4jr9qx56jv9q3qrxg-8000.app.github.dev/'
+
+function setupSmoothScroll() {
+  if (lenisInstance) return
+
+  lenisInstance = new Lenis({
+    autoRaf: false,
+    duration: 1.05,
+    lerp: 0.085,
+    wheelMultiplier: 1.08,
+    smoothWheel: true,
+    syncTouch: false,
+  })
+
+  lenisInstance.on('scroll', ScrollTrigger.update)
+  lenisTicker = (time) => {
+    if (lenisInstance) lenisInstance.raf(time * 1000)
+  }
+  gsap.ticker.add(lenisTicker)
+  gsap.ticker.lagSmoothing(0)
+}
+
+function setupCinematicCanvas() {
+  const hero = cinematicHeroRef.value
+  const canvas = cinematicCanvasRef.value
+  if (!hero || !canvas) return
+
+  const ctx = canvas.getContext('2d', { alpha: true })
+  if (!ctx) return
+
+  let width = 0
+  let height = 0
+  let particles = []
+  const pointer = { x: 0, y: 0, active: false }
+
+  const makeParticle = () => ({
+    x: Math.random() * width,
+    y: Math.random() * height,
+    z: Math.random() * 1.2 + 0.25,
+    vx: (Math.random() - 0.5) * 0.35,
+    vy: (Math.random() - 0.5) * 0.35,
+    radius: Math.random() * 2 + 0.4,
+    color: Math.random() > 0.5 ? '110,231,216' : '120,170,255',
+  })
+
+  const resize = () => {
+    width = Math.max(320, hero.clientWidth)
+    height = Math.max(320, hero.clientHeight)
+    const dpr = Math.min(2, window.devicePixelRatio || 1)
+
+    canvas.width = Math.floor(width * dpr)
+    canvas.height = Math.floor(height * dpr)
+    canvas.style.width = `${width}px`
+    canvas.style.height = `${height}px`
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.scale(dpr, dpr)
+
+    const count = Math.min(900, Math.max(260, Math.round((width * height) / 6200)))
+    particles = Array.from({ length: count }, () => makeParticle())
+  }
+
+  const draw = () => {
+    ctx.clearRect(0, 0, width, height)
+
+    const wash = ctx.createLinearGradient(0, 0, width, height)
+    wash.addColorStop(0, 'rgba(79, 70, 229, 0.18)')
+    wash.addColorStop(0.55, 'rgba(0, 185, 162, 0.11)')
+    wash.addColorStop(1, 'rgba(7, 15, 34, 0.26)')
+    ctx.fillStyle = wash
+    ctx.fillRect(0, 0, width, height)
+
+    for (let i = 0; i < particles.length; i++) {
+      const p = particles[i]
+      if (pointer.active) {
+        const dx = pointer.x - p.x
+        const dy = pointer.y - p.y
+        const dist = Math.max(1, Math.hypot(dx, dy))
+        if (dist < 220) {
+          const force = (220 - dist) / 220
+          p.vx -= (dx / dist) * force * 0.12
+          p.vy -= (dy / dist) * force * 0.12
+        }
+      }
+
+      p.x += p.vx * p.z
+      p.y += p.vy * p.z
+      p.vx *= 0.992
+      p.vy *= 0.992
+
+      if (p.x < -40 || p.x > width + 40 || p.y < -40 || p.y > height + 40) {
+        particles[i] = makeParticle()
+        particles[i].x = Math.random() * width
+        particles[i].y = Math.random() * height
+        continue
+      }
+
+      ctx.beginPath()
+      ctx.fillStyle = `rgba(${p.color}, ${0.35 + p.z * 0.25})`
+      ctx.arc(p.x, p.y, p.radius * p.z, 0, Math.PI * 2)
+      ctx.fill()
+    }
+
+    cinematicFrameId = requestAnimationFrame(draw)
+  }
+
+  heroMouseMoveHandler = (e) => {
+    const rect = hero.getBoundingClientRect()
+    pointer.x = e.clientX - rect.left
+    pointer.y = e.clientY - rect.top
+    pointer.active = true
+  }
+
+  heroMouseLeaveHandler = () => {
+    pointer.active = false
+  }
+
+  hero.addEventListener('mousemove', heroMouseMoveHandler)
+  hero.addEventListener('mouseleave', heroMouseLeaveHandler)
+
+  cinematicResizeObserver = new ResizeObserver(() => {
+    resize()
+  })
+  cinematicResizeObserver.observe(hero)
+
+  resize()
+  draw()
+}
+
+function setupCinematicTimeline() {
+  const hero = cinematicHeroRef.value
+  if (!hero) return
+
+  heroGsapContext = gsap.context(() => {
+    const cards = gsap.utils.toArray('.story-stage-card')
+
+    gsap.from('.cinematic-eyebrow', {
+      y: 24,
+      opacity: 0,
+      duration: 0.7,
+      ease: 'power3.out',
+    })
+
+    gsap.from('.cinematic-title', {
+      y: 36,
+      opacity: 0,
+      duration: 0.9,
+      delay: 0.08,
+      ease: 'power3.out',
+    })
+
+    gsap.from('.cinematic-lead', {
+      y: 30,
+      opacity: 0,
+      duration: 0.85,
+      delay: 0.15,
+      ease: 'power3.out',
+    })
+
+    gsap.from('.metric-chip', {
+      y: 20,
+      opacity: 0,
+      duration: 0.5,
+      delay: 0.22,
+      stagger: 0.08,
+      ease: 'power2.out',
+    })
+
+    gsap.set(cards, {
+      y: 72,
+      opacity: 0,
+      rotateX: 10,
+      transformPerspective: 900,
+      transformOrigin: '50% 100%',
+    })
+
+    const timeline = gsap.timeline({
+      scrollTrigger: {
+        trigger: hero,
+        start: 'top top',
+        end: '+=1700',
+        scrub: 1.05,
+        pin: true,
+        anticipatePin: 1,
+      },
+    })
+
+    timeline
+      .to('.cinematic-orb--left', { x: 160, y: 92, scale: 1.25, rotation: 40 }, 0)
+      .to('.cinematic-orb--right', { x: -140, y: -66, scale: 1.2, rotation: -34 }, 0)
+      .to('.cinematic-ring', { scale: 1.24, rotation: 20, opacity: 0.84 }, 0)
+      .to('.cinematic-title', { y: -34, opacity: 0.82, duration: 0.8 }, 0.22)
+      .to('.cinematic-lead', { y: -24, opacity: 0.64, duration: 0.8 }, 0.22)
+
+    cards.forEach((card, idx) => {
+      const entry = idx * 0.44
+      timeline
+        .to(card, { y: 0, opacity: 1, rotateX: 0, duration: 0.3 }, entry)
+        .to(card, { y: idx === cards.length - 1 ? 0 : -60, opacity: idx === cards.length - 1 ? 1 : 0.22, duration: 0.28 }, entry + 0.34)
+    })
+  }, hero)
+}
+
+function initDesktopExperience() {
+  if (window.innerWidth < 1024) return
+  setupSmoothScroll()
+  setupCinematicCanvas()
+  setupCinematicTimeline()
+}
+
+function destroyDesktopExperience() {
+  if (heroGsapContext) {
+    heroGsapContext.revert()
+    heroGsapContext = null
+  }
+
+  if (cinematicFrameId) {
+    cancelAnimationFrame(cinematicFrameId)
+    cinematicFrameId = null
+  }
+
+  if (cinematicResizeObserver) {
+    cinematicResizeObserver.disconnect()
+    cinematicResizeObserver = null
+  }
+
+  const hero = cinematicHeroRef.value
+  if (hero && heroMouseMoveHandler) hero.removeEventListener('mousemove', heroMouseMoveHandler)
+  if (hero && heroMouseLeaveHandler) hero.removeEventListener('mouseleave', heroMouseLeaveHandler)
+  heroMouseMoveHandler = null
+  heroMouseLeaveHandler = null
+
+  if (lenisInstance) {
+    if (typeof lenisInstance.off === 'function') {
+      lenisInstance.off('scroll', ScrollTrigger.update)
+    }
+    lenisInstance.destroy()
+    lenisInstance = null
+  }
+
+  if (lenisTicker) {
+    gsap.ticker.remove(lenisTicker)
+    lenisTicker = null
+  }
+}
 
 const getUploadHeaders = () => { return { Authorization: `Bearer ${localStorage.getItem('access_token')}` } }
 function handleUploadSuccess(response) { itemForm.value.image_path = response.url; ElMessage.success('🖼️ 图片上传成功！') }
@@ -445,9 +705,12 @@ onMounted(() => {
   fetchItems()
   fetchAiHistory() // 🌟 页面加载时，先把 AI 的记忆拉取过来，准备好聊天记录了！
   initWebSocket() // 🌟 页面一加载完毕，立刻在后台连上电话线！
+  initDesktopExperience()
 })
 
 onUnmounted(() => {
+  destroyDesktopExperience()
+
   if (introTimer) {
     clearTimeout(introTimer)
     introTimer = null
@@ -483,6 +746,43 @@ async function openDashboard() {
         <p class="startup-text">启动买家大厅...</p>
       </div>
     </transition>
+
+    <section ref="cinematicHeroRef" class="cinematic-hero" aria-label="沉浸式桌面首屏">
+      <canvas ref="cinematicCanvasRef" class="cinematic-canvas" aria-hidden="true"></canvas>
+      <div class="cinematic-grid-overlay" aria-hidden="true"></div>
+      <div class="cinematic-orb cinematic-orb--left" aria-hidden="true"></div>
+      <div class="cinematic-orb cinematic-orb--right" aria-hidden="true"></div>
+      <div class="cinematic-ring" aria-hidden="true"></div>
+
+      <div class="cinematic-copy">
+        <p class="cinematic-eyebrow">Desktop Immersive Exchange</p>
+        <h2 class="cinematic-title">让每次闲置交易都像一场流动叙事</h2>
+        <p class="cinematic-lead">实时大厅、AI 管家与标签系统同步驱动，打造更有节奏感的交易体验。</p>
+        <div class="cinematic-metrics">
+          <span class="metric-chip">在售 {{ itemsList.length }}</span>
+          <span class="metric-chip">标签 {{ tagsList.length }}</span>
+          <span class="metric-chip">WebSocket 在线</span>
+        </div>
+      </div>
+
+      <div class="story-stage" aria-label="交易故事阶段">
+        <article class="story-stage-card">
+          <span class="story-index">01</span>
+          <h3>发现</h3>
+          <p>搜索、过滤与标签协同，快速定位目标商品。</p>
+        </article>
+        <article class="story-stage-card">
+          <span class="story-index">02</span>
+          <h3>沟通</h3>
+          <p>交易大厅和 AI 管家并行，降低问答与决策成本。</p>
+        </article>
+        <article class="story-stage-card">
+          <span class="story-index">03</span>
+          <h3>成交</h3>
+          <p>抢购链路实时反馈，让完成时刻更有仪式感。</p>
+        </article>
+      </div>
+    </section>
 
     <h1>🚀 我的全栈二手平台</h1>
     <div class="hero-meta">
@@ -775,6 +1075,181 @@ async function openDashboard() {
   right: -120px;
   top: 160px;
   background: color-mix(in srgb, var(--chart-4) 22%, transparent);
+}
+
+.cinematic-hero {
+  position: relative;
+  min-height: clamp(620px, 88vh, 860px);
+  margin: 8px auto 34px;
+  border-radius: 30px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--primary) 34%, var(--border) 66%);
+  background:
+    radial-gradient(900px 520px at 22% 12%, color-mix(in srgb, var(--primary) 24%, transparent), transparent 62%),
+    radial-gradient(820px 440px at 85% 80%, color-mix(in srgb, var(--chart-4) 24%, transparent), transparent 65%),
+    linear-gradient(130deg, color-mix(in srgb, var(--background) 86%, #111f3b 14%), color-mix(in srgb, var(--background) 78%, #091120 22%));
+  box-shadow:
+    0 36px 70px rgba(7, 12, 28, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+.cinematic-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+.cinematic-grid-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0.44;
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+  background-size: 42px 42px;
+  mask-image: radial-gradient(circle at 42% 46%, rgba(0, 0, 0, 0.95), transparent 80%);
+}
+
+.cinematic-orb,
+.cinematic-ring {
+  position: absolute;
+  border-radius: 999px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.cinematic-orb--left {
+  width: 380px;
+  height: 380px;
+  left: -120px;
+  top: 90px;
+  background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--primary) 74%, #ffffff 26%), color-mix(in srgb, var(--primary) 22%, transparent) 68%);
+  filter: blur(10px);
+  opacity: 0.6;
+}
+
+.cinematic-orb--right {
+  width: 420px;
+  height: 420px;
+  right: -150px;
+  bottom: -80px;
+  background: radial-gradient(circle at 40% 35%, color-mix(in srgb, var(--chart-4) 82%, #ffffff 18%), color-mix(in srgb, var(--chart-4) 24%, transparent) 72%);
+  filter: blur(10px);
+  opacity: 0.58;
+}
+
+.cinematic-ring {
+  width: clamp(260px, 30vw, 420px);
+  aspect-ratio: 1;
+  right: clamp(120px, 18vw, 290px);
+  top: clamp(82px, 13vh, 150px);
+  border: 1px solid color-mix(in srgb, #ffffff 68%, transparent);
+  box-shadow:
+    0 0 0 18px color-mix(in srgb, #ffffff 10%, transparent),
+    0 0 0 56px color-mix(in srgb, var(--primary) 8%, transparent);
+  opacity: 0.7;
+}
+
+.cinematic-copy {
+  position: relative;
+  z-index: 4;
+  max-width: min(640px, 58%);
+  padding: clamp(34px, 4vw, 68px) clamp(26px, 4.2vw, 72px);
+}
+
+.cinematic-eyebrow {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--chart-4) 76%, #ffffff 24%);
+}
+
+.cinematic-title {
+  margin: 14px 0 0;
+  max-width: 14ch;
+  font-size: clamp(38px, 5.2vw, 68px);
+  line-height: 1.04;
+  letter-spacing: -0.02em;
+  color: #f9fcff;
+  text-wrap: balance;
+  text-shadow: 0 18px 48px rgba(7, 12, 25, 0.46);
+}
+
+.cinematic-lead {
+  margin: 18px 0 0;
+  max-width: 52ch;
+  color: color-mix(in srgb, #f7fbff 82%, #9cb0d3 18%);
+  line-height: 1.7;
+  font-size: clamp(14px, 1.15vw, 18px);
+}
+
+.cinematic-metrics {
+  margin-top: 22px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.metric-chip {
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, #ffffff 44%, transparent);
+  background: color-mix(in srgb, #ffffff 14%, transparent);
+  backdrop-filter: blur(9px);
+  color: #f6fbff;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  padding: 8px 14px;
+}
+
+.story-stage {
+  position: absolute;
+  right: clamp(20px, 4vw, 54px);
+  bottom: clamp(24px, 4vh, 52px);
+  width: min(370px, 40%);
+  z-index: 4;
+  display: grid;
+  gap: 12px;
+}
+
+.story-stage-card {
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, #ffffff 26%, transparent);
+  background: color-mix(in srgb, #0f1f3f 58%, transparent);
+  backdrop-filter: blur(16px) saturate(1.1);
+  padding: 14px 14px 13px;
+  box-shadow: 0 14px 30px rgba(5, 12, 27, 0.3);
+}
+
+.story-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  font-weight: 700;
+  font-size: 12px;
+  color: #f7fcff;
+  background: linear-gradient(140deg, color-mix(in srgb, var(--primary) 74%, #7fd3ff 26%), color-mix(in srgb, var(--chart-4) 76%, var(--primary) 24%));
+}
+
+.story-stage-card h3 {
+  margin: 10px 0 6px;
+  font-size: 20px;
+  line-height: 1.2;
+  color: #f4f9ff;
+}
+
+.story-stage-card p {
+  margin: 0;
+  color: color-mix(in srgb, #f4f9ff 78%, #9eb1cf 22%);
+  line-height: 1.55;
+  font-size: 13px;
 }
 
 .dark .home-container {
@@ -1228,6 +1703,10 @@ async function openDashboard() {
 @media (max-width: 900px) {
   .home-container {
     padding: 24px 10px 120px;
+  }
+
+  .cinematic-hero {
+    display: none;
   }
 
   .hero-meta {
