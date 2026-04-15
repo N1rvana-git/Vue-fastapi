@@ -43,51 +43,126 @@ function shouldShowTime(index) {
   return true
 }
 
-async function sendAiMessage() {
-  const text = aiInput.value.trim()
-  if (!text || aiLoading.value) return
-  
-  // 1. 把用户的话塞进记忆数组，带上时间戳
-  aiHistory.value.push({ 
-    role: 'user', 
-    content: text, 
-    timestamp: new Date().toISOString() 
+function scrollToAiBottom() {
+  nextTick(() => {
+    const box = document.getElementById('ai-chat-box')
+    if (box) box.scrollTop = box.scrollHeight
   })
+}
 
-  // 清空输入框并显示加载状态
+// === 🌟 重构：大厂级流式解析 (Streaming) 发送引擎 ===
+const sendAiMessage = async () => {
+  const content = aiInput.value.trim()
+  if (!content || aiLoading.value) return
+
+  // 1. 用户消息瞬间上屏
+  aiHistory.value.push({
+    role: 'user',
+    content,
+    timestamp: new Date().toISOString()
+  })
   aiInput.value = ''
   aiLoading.value = true
-  
-  // 自动滚动到底部
-  nextTick(() => { const box = document.getElementById('ai-chat-box'); if(box) box.scrollTop = box.scrollHeight })
+  scrollToAiBottom()
+
+  // 2. 准备一个 AI 回复的“空壳子”，后续流式填充
+  const aiResponseIndex = aiHistory.value.length
+  aiHistory.value.push({
+    role: 'assistant',
+    content: '',
+    timestamp: new Date().toISOString()
+  })
 
   try {
-    // 2. 🌟 核心：把整个带有记忆的数组发给咱们刚写的后端！
-    // 2. 🌟 核心：把整个带有记忆的数组发给后端，并且必须带上 Token 通行证！
-    const response = await axios.post(
-      `${BASE_URL}items/ai/agent`, 
-      { history: aiHistory.value }, // 请求体数据
-      { 
-        headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` } 
-      } // 🌟 新增：请求头门禁卡！
-    )
-    
-    // 3. 把 AI 的回复也塞进记忆数组，带上时间戳
-    aiHistory.value.push({ 
-      role: 'assistant', 
-      content: response.data.reply,
-      timestamp: new Date().toISOString()
+    const token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token')
+    const streamBaseUrl = import.meta.env.VITE_API_BASE_URL || 'https://jubilant-yodel-4jr9qx56jv9q3qrxg-8000.app.github.dev/'
+
+    const response = await fetch(`${streamBaseUrl}items/ai/agent`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        messages: aiHistory.value.slice(-6).map((m) => ({ role: m.role, content: m.content || m.marketPriceSummary })),
+      }),
     })
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        ElMessage.error('登录状态已过期，请重新登录！')
+        router.push('/login')
+        return
+      }
+      throw new Error('网络请求失败')
+    }
+
+    if (!response.body) {
+      throw new Error('浏览器不支持流式读取')
+    }
+
+    // 逐块解码并按 SSE 事件边界解析，避免分片断包导致 JSON 解析失败
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder('utf-8')
+    let done = false
+    let buffer = ''
+
+    const applySsePayload = (payload) => {
+      if (!payload || payload === '[DONE]') return
+
+      try {
+        const dataObj = JSON.parse(payload)
+
+        if (dataObj.specialType) {
+          aiHistory.value[aiResponseIndex] = {
+            ...aiHistory.value[aiResponseIndex],
+            specialType: dataObj.specialType,
+            itemName: dataObj.itemName,
+            marketPriceSummary: dataObj.marketPriceSummary,
+          }
+        } else if (dataObj.content) {
+          aiHistory.value[aiResponseIndex].content += dataObj.content
+        }
+      } catch {
+        // 忽略 keep-alive 或非 JSON 数据帧
+      }
+      scrollToAiBottom()
+    }
+
+    while (!done) {
+      const { value, done: readerDone } = await reader.read()
+      done = readerDone
+
+      if (!value) continue
+      buffer += decoder.decode(value, { stream: true })
+
+      const events = buffer.split('\n\n')
+      buffer = events.pop() || ''
+
+      for (const event of events) {
+        const lines = event.split('\n')
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            applySsePayload(line.slice(6).trim())
+          }
+        }
+      }
+    }
+
+    if (buffer.trim()) {
+      const lines = buffer.split('\n')
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          applySsePayload(line.slice(6).trim())
+        }
+      }
+    }
   } catch (error) {
-    console.error('AI 请求失败:', error)
-    aiHistory.value.push({ 
-      role: 'assistant', 
-      content: '哎呀，我的大脑似乎断线了...',
-      timestamp: new Date().toISOString()
-    })
+    console.error('AI Stream Error:', error)
+    aiHistory.value[aiResponseIndex].content = '网络有点波动，请稍后再试。'
   } finally {
     aiLoading.value = false
-    nextTick(() => { const box = document.getElementById('ai-chat-box'); if(box) box.scrollTop = box.scrollHeight })
+    scrollToAiBottom()
   }
 }
 // === 🌟 新增：唤醒闲小宝的永久记忆 ===
@@ -922,18 +997,36 @@ async function openDashboard() {
           
           <div id="ai-chat-box" class="chat-body">
             <div v-for="(msg, index) in aiHistory" :key="index" class="message-wrapper">
-              
-              <div v-if="shouldShowTime(index)" class="chat-time-divider">
-                {{ formatChatTime(msg.timestamp) }}
+              <div v-if="msg.role === 'user'" class="chat-bubble-container is-user">
+                <div class="chat-bubble user-bubble">{{ msg.content }}</div>
+                <span class="hover-time">{{ formatChatTime(msg.timestamp) }}</span>
               </div>
-              
-              <div :class="['chat-bubble-container', msg.role === 'user' ? 'is-user' : 'is-ai']">
-                <div :class="['chat-bubble', msg.role === 'user' ? 'user-bubble' : 'ai-bubble']">
-                  {{ msg.content }}
+
+              <div v-else class="chat-bubble-container is-ai">
+                <span v-if="shouldShowTime(index)" class="chat-time">{{ formatChatTime(msg.timestamp) }}</span>
+                <div class="chat-bubble ai-bubble">
+                  <span class="chat-content" style="white-space: pre-wrap;">{{ msg.content }}</span>
+
+                  <div v-if="msg.specialType === 'price_card'" class="ai-price-card">
+                    <div class="card-header">
+                      <div class="card-icon">📊</div>
+                      <div class="card-title-box">
+                        <span class="card-title">{{ msg.itemName }}</span>
+                        <span class="card-subtitle">全网底价情报中心</span>
+                      </div>
+                    </div>
+                    <div class="card-body">
+                      <p class="summary-text">{{ msg.marketPriceSummary }}</p>
+                    </div>
+                    <div class="card-footer">
+                      <button class="card-action-btn" @click="aiInput = '好的，那帮我在平台下单吧！'; sendAiMessage()">
+                        ⚡ 立即在平台下单
+                      </button>
+                    </div>
+                  </div>
                 </div>
                 <span class="hover-time">{{ formatChatTime(msg.timestamp) }}</span>
               </div>
-              
             </div>
             <div v-if="aiLoading" class="ai-bubble typing-indicator">闲小宝正在翻阅数据库... ⏳</div>
           </div>
@@ -1698,6 +1791,91 @@ async function openDashboard() {
 .typing-indicator {
   margin-top: 6px;
   align-self: flex-start;
+}
+
+.chat-time {
+  align-self: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--soft-ink);
+  background: color-mix(in srgb, var(--card) 74%, transparent);
+}
+
+/* 🌟 AI 价格卡片样式 */
+.ai-price-card {
+  margin-top: 12px;
+  background: #ffffff;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+  width: 100%;
+  max-width: 320px;
+}
+
+.ai-price-card .card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.card-icon {
+  font-size: 20px;
+}
+
+.card-title-box {
+  display: flex;
+  flex-direction: column;
+}
+
+.card-title {
+  font-weight: 700;
+  font-size: 14px;
+  color: #0f172a;
+}
+
+.card-subtitle {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.ai-price-card .card-body {
+  padding: 16px;
+  font-size: 13px;
+  color: #334155;
+  line-height: 1.6;
+}
+
+.summary-text {
+  margin: 0;
+}
+
+.ai-price-card .card-footer {
+  padding: 10px 16px;
+  background: #fafafa;
+  border-top: 1px solid rgba(0, 0, 0, 0.04);
+  text-align: right;
+}
+
+.card-action-btn {
+  background: transparent;
+  color: #0ea5e9;
+  border: 1px solid #0ea5e9;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.card-action-btn:hover {
+  background: #0ea5e9;
+  color: #ffffff;
 }
 
 @media (max-width: 900px) {
