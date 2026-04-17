@@ -16,14 +16,20 @@ async function handleLogin() {
     ElMessage.warning('账号密码不能为空哦！')
     return
   }
+
   try {
     loginLoading.value = true
+
     const params = new URLSearchParams()
-    params.append('username', loginForm.value.username)
+    params.append('username', loginForm.value.username.trim())
     params.append('password', loginForm.value.password)
 
-    const response = await api.post('/token', params)
-    
+    const response = await api.post('/token', params, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+    })
+
     userStore.handleLoginSuccess(response.data.access_token)
     ElMessage.success('🎉 认证成功，欢迎回来！')
     sessionStorage.setItem('post_login_intro', '1')
@@ -34,7 +40,23 @@ async function handleLogin() {
       router.push('/buyer/home')
     }
   } catch (error) {
-    ElMessage.error('💥 认证失败，请检查账号或密码。')
+    const status = error?.response?.status
+    const detail = error?.response?.data?.detail
+
+    console.error('login error =>', {
+      status,
+      detail,
+      url: `${error?.config?.baseURL || ''}${error?.config?.url || ''}`,
+      message: error?.message,
+    })
+
+    if (status === 401) {
+      ElMessage.error('账号或密码错误')
+    } else if (status === 404) {
+      ElMessage.error('登录接口地址不存在，请检查 VITE_API_BASE_URL')
+    } else {
+      ElMessage.error(detail || '💥 认证失败，请稍后再试。')
+    }
   } finally {
     loginLoading.value = false
   }

@@ -74,15 +74,9 @@ const sendAiMessage = async () => {
   })
 
   try {
-    const token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token')
-    const streamBaseUrl = import.meta.env.VITE_API_BASE_URL || 'https://jubilant-yodel-4jr9qx56jv9q3qrxg-8000.app.github.dev/'
-
-    const response = await fetch(`${streamBaseUrl}items/ai/agent`, {
+    const response = await fetch(`${apiBase}/items/ai/agent`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
+      headers: withAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         messages: aiHistory.value.slice(-6).map((m) => ({ role: m.role, content: m.content || m.marketPriceSummary })),
       }),
@@ -170,7 +164,7 @@ async function fetchAiHistory() {
   try {
     // 🌟 核心修复：在 history 后面加上斜杠 / ！！！
     const response = await axios.get(`${BASE_URL}items/ai/history/`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` }
+      headers: withAuthHeaders()
     })
     
     // 如果数据库里有记忆，就用数据库的记忆替换掉默认的那句打招呼
@@ -199,9 +193,7 @@ async function clearAiHistory() {
     
     // 2. 告诉后端：立刻执行 DELETE 删库！
     await axios.delete(`${BASE_URL}items/ai/history/`, {
-      headers: { 
-        Authorization: `Bearer ${localStorage.getItem('access_token')}` 
-      }
+      headers: withAuthHeaders()
     })
     
     // 3. 后端删完后，前端立马把本地的聊天记录数组清零！
@@ -287,8 +279,14 @@ function isPendingEcho(message) {
   return false
 }
 
-// ⚠️⚠️⚠️ 换成你的 Codespaces 链接 
-const BASE_URL = 'https://jubilant-yodel-4jr9qx56jv9q3qrxg-8000.app.github.dev/'
+const apiBase = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/+$/, '')
+const BASE_URL = `${apiBase}/`
+
+const getAccessToken = () => localStorage.getItem('access_token') || sessionStorage.getItem('access_token')
+const withAuthHeaders = (headers = {}) => {
+  const token = getAccessToken()
+  return token ? { ...headers, Authorization: `Bearer ${token}` } : headers
+}
 
 function setupSmoothScroll() {
   if (lenisInstance) return
@@ -534,7 +532,7 @@ function destroyDesktopExperience() {
   }
 }
 
-const getUploadHeaders = () => { return { Authorization: `Bearer ${localStorage.getItem('access_token')}` } }
+const getUploadHeaders = () => withAuthHeaders()
 function handleUploadSuccess(response) { itemForm.value.image_path = response.url; ElMessage.success('🖼️ 图片上传成功！') }
 function handleEditUploadSuccess(response) { editForm.value.image_path = response.url; ElMessage.success('🖼️ 新图片上传成功！') }
 function getFullImageUrl(path) { return path ? BASE_URL + path.replace(/^\//, '') : '' }
@@ -542,7 +540,7 @@ function getFullImageUrl(path) { return path ? BASE_URL + path.replace(/^\//, ''
 // === 🌟 升级版：后台静默监听魔法 ===
 function initWebSocket() {
   if (ws) return // 防止重复连接
-  const token = localStorage.getItem('access_token') || ''
+  const token = getAccessToken() || ''
   const wsUrl = BASE_URL.replace(/^http/, 'ws').replace(/\/$/, '') + `/items/ws/hall?token=${token}`
   ws = new WebSocket(wsUrl)
   
@@ -630,7 +628,7 @@ async function submitTag() {
     await axios.post(
       `${BASE_URL}items/tags/`,
       { name },
-      { headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` } }
+      { headers: withAuthHeaders() }
     )
     ElMessage.success('标签已添加')
     tagDialogVisible.value = false
@@ -656,7 +654,7 @@ async function removeTag(tag) {
 
   try {
     await axios.delete(`${BASE_URL}items/tags/${tag.id}`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` }
+      headers: withAuthHeaders()
     })
     tagsList.value = tagsList.value.filter(item => item.id !== tag.id)
     ElMessage.success('标签已删除')
@@ -722,7 +720,7 @@ async function buyItem(item) {
 
     // 3. 带着 Token 发起防超卖抢购请求！
     const response = await axios.post(`${BASE_URL}items/${item.id}/buy`, {}, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` }
+      headers: withAuthHeaders()
     })
 
     // 4. 抢购成功后的无缝体验
@@ -804,7 +802,7 @@ async function openDashboard() {
   dashboardVisible.value = true
   try {
     const response = await axios.get(`${BASE_URL}items/dashboard/me`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` }
+      headers: withAuthHeaders()
     })
     dashboardData.value = response.data
   } catch (error) {
